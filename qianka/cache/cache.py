@@ -114,7 +114,13 @@ class QKCache(object):
         """
         close all instances
         """
-        raise NotImplementedError()
+        with self._instant_lock:
+            _instants = self.registry()
+            for k in [x for x in _instants.keys()]:
+                client = _instants.pop(k)
+                client.connection_pool.disconnect() # close connection
+                del client
+
 
     def _check_backend(backend):
         """preform various checking
