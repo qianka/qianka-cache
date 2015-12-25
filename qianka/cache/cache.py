@@ -6,6 +6,7 @@ import msgpack
 from werkzeug.contrib.cache import NullCache
 
 from .redis_cache import RedisCache
+from .utils._collections import ScopedRegistry, ThreadLocalRegistry
 
 
 logger = logging.getLogger('qianka.cache')
@@ -22,13 +23,19 @@ class QKCache(object):
     ```
     """
 
-    def __init__(self):
+    def __init__(self, scopefunc=None):
         self._config = {}
         self._config.setdefault('CACHE_ENABLED', False)
         self._config.setdefault('CACHE_KEY_PREFIX', 'qianka')
         self._config.setdefault('CACHE_DEFAULT_TIMEOUT', 300)
         self._config.setdefault('CACHE_NODES',
                                 {'default': ['redis://127.0.0.1']})
+
+        if scopefunc:
+            self.registry = ScopedRegistry(lambda : {}, scopedfunc)
+        else:
+            self.registry = ThreadLocalRegistry(lambda : {})
+
         self._instants = {}
         self._instant_lock = Lock()
 
@@ -61,14 +68,17 @@ class QKCache(object):
         """return a RedisCache instance, initial it for the first time
         """
         with self._instant_lock:
-            if name in self._instants:
-                return self._instants[name]
+
+            _instants = self.registry()
+
+            if name in _instants:
+                return _instants[name]
 
             cache_enabled = self._config['CACHE_ENABLED']
             if not cache_enabled:
                 logger.info('disabled, init null cache')
-                self._instants[name] = NullCache()
-                return self._instants[name]
+                _instants[name] = NullCache()
+                return _instants[name]
 
             cfg = self._config['CACHE_NODES'][name]
             if type(cfg) in (list, tuple):
@@ -91,19 +101,26 @@ class QKCache(object):
                                   marshal_module=msgpack)
             elif backend == 'memcached':
                 logger.info('init redis cache with nodes: %s' % nodes)
-                raise NotImplementedError('unsupported cache backend: %s' % backend)
+                raise NotImplementedError('unsupported cache backend: %s' % \
+                                          backend)
             else:
                 logger.info('init null cache')
                 inst = NullCache()
 
-            self._instants[name] = inst
+            _instants[name] = inst
             return inst
 
     def reset(self):
         """
         close all instances
         """
-        raise NotImplementedError()
+        with self._instant_lock:
+            _instants = self.registry()
+            for k in [x for x in _instants.keys()]:
+                client = _instants.pop(k)
+                client.connection_pool.disconnect() # close connection
+                del client
+
 
     def _check_backend(backend):
         """preform various checking
