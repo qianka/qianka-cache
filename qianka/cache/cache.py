@@ -23,7 +23,7 @@ class QKCache(object):
     ```
     """
 
-    def __init__(self, scopefunc=None):
+    def __init__(self):
         self._config = {}
         self._config.setdefault('CACHE_ENABLED', False)
         self._config.setdefault('CACHE_KEY_PREFIX', 'qianka')
@@ -31,13 +31,11 @@ class QKCache(object):
         self._config.setdefault('CACHE_NODES',
                                 {'default': ['redis://127.0.0.1']})
 
-        if scopefunc:
-            self.registry = ScopedRegistry(lambda : {}, scopedfunc)
-        else:
-            self.registry = ThreadLocalRegistry(lambda : {})
-
         self._instants = {}
         self._instant_lock = Lock()
+
+    def get_instances(self):
+        return self._instants
 
     @property
     def config(self):
@@ -69,16 +67,16 @@ class QKCache(object):
         """
         with self._instant_lock:
 
-            _instants = self.registry()
+            instants = self.get_instances()
 
-            if name in _instants:
-                return _instants[name]
+            if name in instants:
+                return instants[name]
 
             cache_enabled = self._config['CACHE_ENABLED']
             if not cache_enabled:
                 logger.info('disabled, init null cache')
-                _instants[name] = NullCache()
-                return _instants[name]
+                instants[name] = NullCache()
+                return instants[name]
 
             cfg = self._config['CACHE_NODES'][name]
             if type(cfg) in (list, tuple):
@@ -107,7 +105,7 @@ class QKCache(object):
                 logger.info('init null cache')
                 inst = NullCache()
 
-            _instants[name] = inst
+            instants[name] = inst
             return inst
 
     def reset(self):
@@ -115,13 +113,12 @@ class QKCache(object):
         close all instances
         """
         with self._instant_lock:
-            _instants = self.registry()
-            for k in [x for x in _instants.keys()]:
-                client = _instants.pop(k)
-                client.connection_pool.disconnect() # close connection
-                del client
+            instants = self.get_instances()
+            for instant in instants.values():
+                instant.reset()
+            instants.clear()
 
-
+    @staticmethod
     def _check_backend(backend):
         """preform various checking
         """
@@ -156,4 +153,13 @@ class QKCache(object):
                                'please consult the cache API' % name)
 
         # delegate to default cache instance
-        return getattr(self.get_cache('default'), name)
+        return getattr(self.get_cache(), name)
+
+
+def scoped_cache(cache, scopefunc=None):
+    if scopefunc:
+        cache.registry = ScopedRegistry(lambda: {}, scopefunc)
+    else:
+        cache.registry = ThreadLocalRegistry(lambda: {})
+
+    cache.get_instances = lambda: cache.registry()

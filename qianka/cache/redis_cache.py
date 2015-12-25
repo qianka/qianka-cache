@@ -58,12 +58,12 @@ class RedisCache(object):
         self._nodes = nodes
 
 
-    def _reset(self):
+    def reset(self):
         """close all connection, remove all client instances
         """
         for k in list(self.clients.keys()):
             r = self.clients.get(k)
-            r.connection_pool.disconnect()
+            # r.connection_pool.disconnect()
             del r
 
 
