@@ -31,11 +31,11 @@ class QKCache(object):
         self._config.setdefault('CACHE_NODES',
                                 {'default': ['redis://127.0.0.1']})
 
-        self._instants = {}
-        self._instant_lock = Lock()
+        self._instances = {}
+        self._instances_lock = Lock()
 
     def get_instances(self):
-        return self._instants
+        return self._instances
 
     @property
     def config(self):
@@ -65,18 +65,18 @@ class QKCache(object):
     def get_cache(self, name='default'):
         """return a RedisCache instance, initial it for the first time
         """
-        with self._instant_lock:
+        with self._instances_lock:
 
-            instants = self.get_instances()
+            instances = self.get_instances()
 
-            if name in instants:
-                return instants[name]
+            if name in instances:
+                return instances[name]
 
             cache_enabled = self._config['CACHE_ENABLED']
             if not cache_enabled:
                 logger.info('disabled, init null cache')
-                instants[name] = NullCache()
-                return instants[name]
+                instances[name] = NullCache()
+                return instances[name]
 
             cfg = self._config['CACHE_NODES'][name]
             if type(cfg) in (list, tuple):
@@ -105,18 +105,18 @@ class QKCache(object):
                 logger.info('init null cache')
                 inst = NullCache()
 
-            instants[name] = inst
+            instances[name] = inst
             return inst
 
     def reset(self):
         """
         close all instances
         """
-        with self._instant_lock:
-            instants = self.get_instances()
-            for instant in instants.values():
-                instant.reset()
-            instants.clear()
+        with self._instances_lock:
+            instances = self.get_instances()
+            for instance in instances.values():
+                instance.reset()
+            instances.clear()
 
     @staticmethod
     def _check_backend(backend):
