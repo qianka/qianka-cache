@@ -124,9 +124,12 @@ class RedisCache(object):
         return self.load_object(client.get(k))
 
 
-    def set(self, key, value, timeout=None):
+    def set(self, key, value, timeout=None, raw=False):
         timeout = self._get_expiration(timeout)
-        dump = self.dump_object(value)
+        if raw:
+            dump = value
+        else:
+            dump = self.dump_object(value)
 
         k = self._get_key(key)
         client = self._key_to_conn(k)
@@ -195,13 +198,21 @@ class RedisCache(object):
                 status = client.flushdb()
         return status
 
-    def inc(self, key, delta=1):
+    def inc(self, key, delta=1, timeout=None):
+        timeout = self._get_expiration(timeout)
+
         k = self._get_key(key)
         client = self._key_to_conn(k)
-        return client.incr(name=k, amount=delta)
+        rv = client.incr(name=k, amount=delta)
+        client.expire(name=k, time=timeout)
+        return rv
 
 
-    def dec(self, key, delta=1):
+    def dec(self, key, delta=1, timeout=None):
+        timeout = self._get_expiration(timeout)
+
         k = self._get_key(key)
         client = self._key_to_conn(k)
-        return client.decr(name=k, amount=delta)
+        rv = client.decr(name=k, amount=delta)
+        client.expire(name=k, time=timeout)
+        return rv
