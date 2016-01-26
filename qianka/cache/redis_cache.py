@@ -97,7 +97,7 @@ class RedisCache(object):
         """
         if type(value) == int:
             value = str(value).encode('ascii')
-        return self.marshal_module.dumps(value)
+        return self.marshal_module.dumps(value, encoding='utf-8')
 
 
     def load_object(self, value):
@@ -107,7 +107,7 @@ class RedisCache(object):
         if value is None:
             return None
 
-        value = self.marshal_module.loads(value)
+        value = self.marshal_module.loads(value, encoding='utf-8')
         try:
             return int(value)
         except (ValueError, TypeError):
