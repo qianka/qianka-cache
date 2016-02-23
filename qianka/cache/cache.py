@@ -139,6 +139,7 @@ class QKCache(object):
         """
         if name not in (
             'add',
+            'exists',
             'set',
             'get',
             'delete',

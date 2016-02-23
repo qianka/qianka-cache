@@ -114,6 +114,13 @@ class RedisCache(object):
             return value
 
 
+    def exists(self, key):
+        k = self._get_key(key)
+        client = self._key_to_conn(k)
+
+        return client.exists(k)
+
+
     def get(self, key, raw=False):
         k = self._get_key(key)
         client = self._key_to_conn(k)
