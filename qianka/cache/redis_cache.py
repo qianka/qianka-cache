@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+
+from collections import defaultdict
+
 import redis
 
 from .hash_ring import HashRing
@@ -90,6 +93,9 @@ class RedisCache(object):
         url = self.ring.get_node(key)
         return self._get_connection(url)
 
+    def _key_to_url(self, key):
+        return self.ring.get_node(key)
+
 
     def dump_object(self, value):
         """Dumps an object into a string for redis.  By default it serializes
@@ -161,19 +167,82 @@ class RedisCache(object):
             client.expire(name=k, time=timeout)
         )
 
+    def _group_by_url(self, iterable, func_handle_arg, func_get_url):
+        """
+        OUTPUT:
+        {
+            'redis://127.0.0.1': [
+                (0, 'SOMEKEY'),
+                (2, 'SOMEKEY_ELSE')
+            ],
+            'redis://192.168.1.234': [
+                (1, 'SOMEKEY_ELSE_AGAIN')
+            ]
+        }
+        OR:
+        {
+            'redis://127.0.0.1': [
+                (0, ('SOMEKEY', 'SOMEVALUE')),
+                (2, ('SOMEKEY_ELSE', 'SOMEVALUE_ELSE'))
+            ],
+            'redis://192.168.1.234': [
+                (1, ('SOMEKEY_ELSE_AGAIN', 'SOMEVALUE_ELSE_AGAIN'))
+            ]
+        }
+        """
+        pos_args = list(enumerate(iterable))
+        pos_arg_urls = [(pos, func_handle_arg(arg), func_get_url(arg))
+                        for (pos, arg) in pos_args]
 
-    def get_many(self, *keys):
-        # TODO: maybe indexing keys first, then group by
-        # connections, then restore the result sort
-        return [x for x in map(self.get, keys)]
+        url_dict = defaultdict(list)
+        for (pos, arg, url) in pos_arg_urls:
+            url_dict[url].append((pos, arg))
 
+        return url_dict
 
-    def set_many(self, mapping, timeout=None):
-        # TODO: maybe indexing keys first, then group by
-        # connections, then restore the result sort
-        return [x for x in
-                map(lambda _: self.set(_[0], _[1], timeout),
-                    list(mapping.items()))]
+    def get_many(self, *keys, **kwargs):
+        url_dict = self._group_by_url(
+            keys,
+            lambda x: self._get_key(x),
+            lambda x: self._key_to_url(self._get_key(x)))
+
+        results = []
+        for url, pos_key_list in url_dict.items():
+            client = self._get_connection(url)
+            pos_tuple, key_tuple = zip(*pos_key_list)
+            result_list = client.mget(list(key_tuple))
+            if not kwargs.get('raw', False):
+                result_list = [self.load_object(i) for i in result_list]
+
+            for t in zip(pos_tuple, result_list):
+                results.append(t)
+
+        return [r[1] for r in sorted(results, key=lambda results: results[0])]
+
+    def set_many(self, mapping, raw=False, timeout=None):
+        if timeout:
+            # Redis do not support msetex :(
+            return [x for x in
+                    map(lambda _: self.set(_[0], _[1], timeout),
+                        list(mapping.items()))]
+        else:
+            if not raw:
+                func_handle_arg = lambda x: (self._get_key(x[0]),
+                                             self.dump_object(x[1]))
+            else:
+                func_handle_arg = lambda x: (self._get_key(x[0]), x[1])
+
+            url_dict = self._group_by_url(
+                tuple(mapping.items()),
+                func_handle_arg,
+                lambda x: self._key_to_url(self._get_key(x[0])))
+
+            for url, pos_kv_list in url_dict.items():
+                client = self._get_connection(url)
+                pos_tuple, kv_tuple = zip(*pos_kv_list)
+                client.mset(dict(kv_tuple))
+
+            return [True for i in mapping]
 
 
     def delete(self, key):
