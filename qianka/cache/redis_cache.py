@@ -220,29 +220,32 @@ class RedisCache(object):
         return [r[1] for r in sorted(results, key=lambda results: results[0])]
 
     def set_many(self, mapping, raw=False, timeout=None):
-        if timeout:
-            # Redis do not support msetex :(
-            return [x for x in
-                    map(lambda _: self.set(_[0], _[1], timeout),
-                        list(mapping.items()))]
+        timeout = self._get_expiration(timeout)
+
+        if not raw:
+            func_handle_arg = lambda x: (self._get_key(x[0]),
+                                         self.dump_object(x[1]))
         else:
-            if not raw:
-                func_handle_arg = lambda x: (self._get_key(x[0]),
-                                             self.dump_object(x[1]))
+            func_handle_arg = lambda x: (self._get_key(x[0]), x[1])
+
+        url_dict = self._group_by_url(
+            tuple(mapping.items()),
+            func_handle_arg,
+            lambda x: self._key_to_url(self._get_key(x[0])))
+
+        results = []
+        for url, pos_kv_list in url_dict.items():
+            client = self._get_connection(url)
+            pos_tuple, kv_tuple = zip(*pos_kv_list)
+            if timeout == -1:
+                results.append(client.mset(dict(kv_tuple)))
             else:
-                func_handle_arg = lambda x: (self._get_key(x[0]), x[1])
+                pipe = client.pipeline(transaction=False)
+                for k, v in kv_tuple:
+                    pipe.setex(name=k, value=v, time=timeout)
+                results += pipe.execute()
 
-            url_dict = self._group_by_url(
-                tuple(mapping.items()),
-                func_handle_arg,
-                lambda x: self._key_to_url(self._get_key(x[0])))
-
-            for url, pos_kv_list in url_dict.items():
-                client = self._get_connection(url)
-                pos_tuple, kv_tuple = zip(*pos_kv_list)
-                client.mset(dict(kv_tuple))
-
-            return [True for i in mapping]
+        return all([i is True for i in results])
 
 
     def delete(self, key):
