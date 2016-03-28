@@ -74,7 +74,7 @@ class QKCache(object):
 
             cache_enabled = self._config['CACHE_ENABLED']
             if not cache_enabled:
-                logger.info('disabled, init null cache')
+                logger.debug('disabled, init null cache')
                 instances[name] = NullCache()
                 return instances[name]
 
@@ -92,17 +92,17 @@ class QKCache(object):
             timeout = self._config['CACHE_DEFAULT_TIMEOUT']
 
             if backend == 'redis':
-                logger.info('init redis cache with nodes: %s' % nodes)
+                logger.debug('init redis cache with nodes: %s' % nodes)
                 inst = RedisCache(nodes,
                                   key_prefix=key_prefix,
                                   default_timeout=timeout,
                                   marshal_module=msgpack)
             elif backend == 'memcached':
-                logger.info('init redis cache with nodes: %s' % nodes)
+                logger.debug('init redis cache with nodes: %s' % nodes)
                 raise NotImplementedError('unsupported cache backend: %s' % \
                                           backend)
             else:
-                logger.info('init null cache')
+                logger.debug('init null cache')
                 inst = NullCache()
 
             instances[name] = inst
